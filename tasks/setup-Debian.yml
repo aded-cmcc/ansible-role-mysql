@@ -24,6 +24,36 @@
   service: "name={{ mysql_daemon }} state=stopped"
   when: not mysql_installed.stat.exists
 
+## See https://github.com/geerlingguy/ansible-role-mysql/issues/444
+- name: Change datadir in /etc/mysql/mariadb.conf.d/50-server.cnf
+  lineinfile:
+    path: "/etc/mysql/mariadb.conf.d/50-server.cnf"
+    regexp: '^datadir'
+    line: "datadir = {{ mysql_datadir }}"
+  when: not mysql_installed.stat.exists
+
+## See https://github.com/geerlingguy/ansible-role-mysql/issues/399
+- name: "Check whether {{ mysql_datadir }} exist."
+  stat:
+    path: "{{ mysql_datadir }}/mysql"
+  register: mysql_folder_stat
+  when: mysql_datadir != "/var/lib/mysql"
+- name: "Synchronize /var/lib/mysql content to {{ mysql_datadir }}"
+  ansible.posix.synchronize:
+    src: "/var/lib/mysql/."
+    dest: "{{ mysql_datadir }}"
+    perms: yes
+  delegate_to: "{{ inventory_hostname }}"
+  when: mysql_datadir != "/var/lib/mysql" and mysql_folder_stat.stat.exists == False
+  notify: restart mysql
+
+## We finally remove /var/lib/mysql if it isn't the datadir
+- name: Remove old datadir if required
+  file:
+    path: /var/lib/mysql
+    state: absent
+  when: mysql_datadir != "/var/lib/mysql"
+
 - name: Delete innodb log files created by apt package after initial install.
   file: path={{ mysql_datadir }}/{{ item }} state=absent
   with_items:
